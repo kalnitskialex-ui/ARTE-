@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARTE — недвижимость</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7385; --line:#e3e6ec; --accent:#2f6fde; --down:#1a8f4c; --up:#c43d3d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171d; --card:#1d2129; --text:#e6e9ef; --muted:#9aa3b5; --line:#2c323d; --accent:#6c9cf0; --down:#4cc17f; --up:#ef6b6b; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px; display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; }
+  .muted { color:var(--muted); }
+  main { padding:0 16px 32px; display:grid; gap:16px; grid-template-columns: minmax(0,1fr) 380px; }
+  @media (max-width: 1000px) { main { grid-template-columns: minmax(0,1fr); } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:end; }
+  .filters label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); gap:3px; }
+  input, select, button { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text); }
+  input[type=number] { width:110px; }
+  button { cursor:pointer; } button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; }
+  .stat { flex:1 1 120px; } .stat b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td.addr { white-space:normal; min-width:220px; }
+  th { font-size:12px; color:var(--muted); font-weight:600; }
+  tbody tr { cursor:pointer; } tbody tr:hover { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  .num { text-align:right; }
+  #map { height:360px; border-radius:8px; }
+  .events li { margin-bottom:6px; } .down { color:var(--down); } .up { color:var(--up); }
+  dialog { border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); width:min(720px, calc(100vw - 32px)); }
+  .pager { display:flex; gap:8px; align-items:center; margin-top:10px; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ARTE</h1><span class="muted">мониторинг объявлений о недвижимости</span>
+</header>
+<main>
+  <section style="display:grid; gap:16px; min-width:0">
+    <div class="card stats" id="stats"></div>
+    <div class="card">
+      <form class="filters" id="filters">
+        <label>Поиск<input name="q" placeholder="адрес, метро, заголовок"></label>
+        <label>Площадка<select name="source"><option value="">все</option><option>cian</option><option>avito</option><option>domclick</option><option>yandex</option><option>generic</option></select></label>
+        <label>Сделка<select name="deal_type"><option value="">все</option><option value="sale">продажа</option><option value="rent">аренда</option></select></label>
+        <label>Комнат<select name="rooms"><option value="">любое</option><option value="0">студия</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+        <label>Цена от<input type="number" name="price_min" step="100000"></label>
+        <label>до<input type="number" name="price_max" step="100000"></label>
+        <label>Площадь от<input type="number" name="area_min"></label>
+        <label>Сортировка<select name="sort"><option value="new">новые</option><option value="price">дешевле</option><option value="-price">дороже</option><option value="ppm">₽/м²</option></select></label>
+        <button class="primary">Показать</button>
+        <button type="button" data-export="xlsx">Excel</button>
+        <button type="button" data-export="csv">CSV</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Площадка</th><th>Объект</th><th class="num">Цена</th><th class="num">₽/м²</th><th class="num">м²</th><th>Этаж</th><th>Адрес</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <div class="pager"><button id="prev">←</button><span id="pageinfo" class="muted"></span><button id="next">→</button></div>
+    </div>
+  </section>
+  <aside style="display:grid; gap:16px; align-content:start; min-width:0">
+    <div class="card"><div id="map"></div></div>
+    <div class="card"><b>События</b><ul class="events" id="events" style="padding-left:18px"></ul></div>
+  </aside>
+</main>
+<dialog id="detail"><div id="detail-body"></div><canvas id="chart" height="120"></canvas><p><button onclick="detail.close()">Закрыть</button></p></dialog>
+<script>
+const fmt = v => v == null ? "—" : Math.round(v).toLocaleString("ru-RU");
+const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const LIMIT = 50; let offset = 0, total = 0, chart;
+// Карта и графики — улучшение: без CDN дашборд продолжает работать.
+const map = window.L ? L.map("map").setView([55.75, 37.62], 10) : null;
+if (map) L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {attribution: "© OpenStreetMap"}).addTo(map);
+else document.getElementById("map").outerHTML = '<p class="muted">Карта недоступна (нет доступа к CDN)</p>';
+const markers = map ? L.layerGroup().addTo(map) : null;
+
+function params() {
+  const p = new URLSearchParams();
+  for (const [k, v] of new FormData(document.getElementById("filters"))) if (v !== "") p.append(k, v);
+  return p;
+}
+const roomsLabel = r => r === 0 ? "студия" : r ? `${r}-комн.` : "";
+
+async function load() {
+  const p = params(); p.set("limit", LIMIT); p.set("offset", offset);
+  const data = await (await fetch("/api/listings?" + p)).json();
+  total = data.total;
+  document.getElementById("pageinfo").textContent = total ? `${offset + 1}–${Math.min(offset + LIMIT, total)} из ${total}` : "ничего не найдено";
+  document.getElementById("rows").innerHTML = data.items.map(r => `
+    <tr data-id="${r.id}">
+      <td><span class="tag">${esc(r.source)}</span></td>
+      <td>${esc(r.title ?? roomsLabel(r.rooms))}</td>
+      <td class="num">${fmt(r.price)}</td><td class="num">${fmt(r.price_per_m2)}</td>
+      <td class="num">${r.area_total ?? "—"}</td>
+      <td>${r.floor ?? "—"}${r.floors_total ? "/" + r.floors_total : ""}</td>
+      <td class="addr">${esc(r.address ?? "")}${r.metro ? ` <span class="muted">м. ${esc(r.metro)}</span>` : ""}</td>
+    </tr>`).join("");
+  if (!map) return;
+  markers.clearLayers();
+  const pts = data.items.filter(r => r.lat && r.lon);
+  pts.forEach(r => L.circleMarker([r.lat, r.lon], {radius: 6}).bindPopup(`${fmt(r.price)} ₽<br>${esc(r.address ?? "")}`).addTo(markers));
+  if (pts.length) map.fitBounds(L.latLngBounds(pts.map(r => [r.lat, r.lon])), {maxZoom: 14, padding: [20, 20]});
+}
+
+async function loadStats() {
+  const s = await (await fetch("/api/stats")).json();
+  const active = Object.values(s.active_by_source).reduce((a, b) => a + b, 0);
+  const ppm = Object.entries(s.median_price_per_m2_by_rooms).map(([k, v]) => `${k}: ${fmt(v)}`).join(" · ") || "—";
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><span class="muted">Активных объявлений</span><b>${fmt(active)}</b></div>
+    <div class="stat"><span class="muted">Уникальных объектов</span><b>${fmt(s.unique_objects)}</b></div>
+    <div class="stat"><span class="muted">Изменений цены</span><b>${fmt(s.price_changes)}</b></div>
+    <div class="stat" style="flex-basis:260px"><span class="muted">Медиана ₽/м² (продажа)</span><div>${ppm}</div></div>`;
+  const ev = await (await fetch("/api/events?limit=15")).json();
+  const label = {new: "новое", price_down: "цена ↓", price_up: "цена ↑", removed: "снято", reactivated: "снова в продаже"};
+  document.getElementById("events").innerHTML = ev.map(e => `<li>
+    <span class="${e.kind === "price_down" ? "down" : e.kind === "price_up" ? "up" : ""}">${label[e.kind] ?? e.kind}</span>
+    ${e.old_price ? fmt(e.old_price) + " → " : ""}${fmt(e.new_price)} · <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title ?? e.source)}</a></li>`).join("") || '<li class="muted">пока пусто</li>';
+}
+
+async function showDetail(id) {
+  const d = await (await fetch("/api/listings/" + id)).json();
+  const dups = d.same_object_on_other_sites.map(x => `<li><span class="tag">${esc(x.source)}</span> ${fmt(x.price)} ₽ — <a href="${esc(x.url)}" target="_blank" rel="noopener">открыть</a></li>`).join("");
+  document.getElementById("detail-body").innerHTML = `
+    <h3>${esc(d.title ?? "Объявление")}</h3>
+    <p><b>${fmt(d.price)} ₽</b> · ${d.area_total ?? "—"} м² · ${fmt(d.price_per_m2)} ₽/м²<br>${esc(d.address ?? "")}</p>
+    <p><a href="${esc(d.url)}" target="_blank" rel="noopener">Открыть на ${esc(d.source)}</a>
+       <span class="muted"> · извлечено: ${esc((d.extraction_methods || []).join(", "))}</span></p>
+    ${dups ? `<p><b>Этот же объект на других площадках:</b></p><ul>${dups}</ul>` : ""}`;
+  chart?.destroy();
+  document.getElementById("chart").hidden = !window.Chart || d.price_history.length < 2;
+  if (window.Chart) chart = new Chart(document.getElementById("chart"), {type: "line",
+    data: {labels: d.price_history.map(p => new Date(p.seen_at).toLocaleDateString("ru-RU")),
+           datasets: [{label: "Цена, ₽", data: d.price_history.map(p => p.price), stepped: true}]},
+    options: {plugins: {legend: {display: false}}}});
+  detail.showModal();
+}
+
+document.getElementById("filters").addEventListener("submit", e => { e.preventDefault(); offset = 0; load(); });
+document.querySelectorAll("[data-export]").forEach(b => b.onclick = () => location.href = `/api/export.${b.dataset.export}?` + params());
+document.getElementById("rows").addEventListener("click", e => { const tr = e.target.closest("tr"); if (tr) showDetail(tr.dataset.id); });
+document.getElementById("prev").onclick = () => { if (offset > 0) { offset -= LIMIT; load(); } };
+document.getElementById("next").onclick = () => { if (offset + LIMIT < total) { offset += LIMIT; load(); } };
+load(); loadStats();
+</script>
+</body>
+</html>

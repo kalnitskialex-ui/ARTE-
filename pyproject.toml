@@ -1,0 +1,52 @@
+[project]
+name = "arte"
+version = "0.1.0"
+description = "Сбор, нормализация и мониторинг объявлений о недвижимости с разных площадок"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "selectolax>=1.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "aiosqlite>=0.20",
+    "asyncpg>=0.29",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "typer>=0.12",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.9",
+    "firecrawl-py>=4.40",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic>=1.12"]
+browser = ["playwright>=1.45"]
+scrapling = ["scrapling[fetchers]>=0.4.15"]
+scrapegraph = ["scrapegraphai>=2.3", "langchain-anthropic>=1.7"]
+all = ["arte[llm,browser,scrapling,scrapegraph]"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
+
+[project.scripts]
+arte = "arte.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arte"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "SIM105"]  # B008 — идиома typer

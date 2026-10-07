@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: arte, POSTGRES_PASSWORD: arte, POSTGRES_DB: arte}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD", "pg_isready", "-U", "arte"], interval: 5s, retries: 10}
+
+  api:
+    build: .
+    env_file: .env
+    environment: {ARTE_DATABASE_URL: "postgresql+asyncpg://arte:arte@db:5432/arte"}
+    ports: ["8000:8000"]
+    volumes: ["./jobs.yaml:/app/jobs.yaml:ro"]
+    depends_on: {db: {condition: service_healthy}}
+
+  worker:
+    build: .
+    command: ["arte", "run"]
+    env_file: .env
+    environment:
+      ARTE_DATABASE_URL: "postgresql+asyncpg://arte:arte@db:5432/arte"
+      ARTE_ADAPTIVE_STORAGE: /app/data/adaptive.db
+    volumes: ["./jobs.yaml:/app/jobs.yaml:ro", "adaptive:/app/data"]
+    depends_on: {db: {condition: service_healthy}}
+
+volumes:
+  pgdata:
+  adaptive:

@@ -1,0 +1,32 @@
+# Скопируйте в jobs.yaml. Ссылки поиска — это обычные URL выдачи с вашими фильтрами,
+# скопированные из браузера.
+jobs:
+  - name: msk-2k-cian
+    source: cian
+    search_urls:
+      - "https://www.cian.ru/cat.php?deal_type=sale&engine_version=2&offer_type=flat&region=1&room2=1"
+    max_pages: 3
+    max_listings: 150
+    interval_minutes: 180
+    notify:
+      kinds: [new, price_down]
+      price_max: 25000000
+      rooms: [2]
+
+  - name: spb-avito
+    source: avito
+    search_urls:
+      - "https://www.avito.ru/sankt-peterburg/kvartiry/prodam-ASgBAgICAUSSA8YQ"
+    max_pages: 2
+    interval_minutes: 240
+
+  # Любой сайт агентства/застройщика: задаём шаблон ссылки на объект
+  # и (необязательно) CSS-селекторы, которые Scrapling будет «чинить» при смене вёрстки.
+  - name: agency-example
+    source: generic
+    search_urls: ["https://agency.example/catalog/"]
+    listing_pattern: 'agency\.example/object/(?P<id>\d+)'
+    selectors:
+      price: ".object-price"
+      area_total: ".object-area"
+      address: ".object-address"
