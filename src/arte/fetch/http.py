@@ -21,7 +21,20 @@ from arte.fetch.robots import RobotsCache
 log = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
-BLOCK_MARKERS = ("captcha", "капч", "are you a robot", "доступ ограничен", "access denied")
+# 439 — код файрвола Avito.
+BLOCK_STATUSES = {401, 403, 439}
+BLOCK_MARKERS = ("captcha", "капч", "are you a robot", "доступ ограничен", "access denied",
+                 "проверка безопасности")
+
+
+def looks_blocked(status: int, url: str, html: str) -> bool:
+    """Страница защиты от ботов: по коду, по адресу редиректа (cian-captcha) или по короткому тексту-заглушке."""
+    if status in BLOCK_STATUSES or "captcha" in url.lower():
+        return True
+    if status == 200 and len(html) < 20_000:
+        lower = html.lower()
+        return any(m in lower for m in BLOCK_MARKERS)
+    return False
 
 
 class DisallowedError(Exception):
@@ -99,15 +112,6 @@ class Fetcher:
         except (TypeError, ValueError):
             return None
 
-    @staticmethod
-    def _looks_blocked(resp: httpx.Response) -> bool:
-        if resp.status_code in (401, 403):
-            return True
-        if resp.status_code == 200 and len(resp.text) < 20_000:
-            lower = resp.text.lower()
-            return any(m in lower for m in BLOCK_MARKERS)
-        return False
-
     async def get(self, url: str, *, conditional: bool = True, **_) -> FetchResult:
         host = urlsplit(url).netloc
         if host in self._blocked_hosts:
@@ -138,7 +142,7 @@ class Fetcher:
                     continue
                 break
 
-        if self._looks_blocked(resp):
+        if looks_blocked(resp.status_code, str(resp.url), resp.text):
             self._blocked_hosts.add(host)
             raise BlockedError(f"{host}: HTTP {resp.status_code}, похоже на защиту от ботов")
 

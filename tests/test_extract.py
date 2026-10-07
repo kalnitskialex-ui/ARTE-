@@ -74,3 +74,25 @@ async def test_firecrawl_prefilled_json_is_used():
                                          "address": "Тверь, ул. Советская, 1", "title": "1-к"})
     assert item.price == 5_000_000
     assert "firecrawl_json" in item.extraction_methods
+
+
+async def test_domclick_structure_from_live_page():
+    """Регрессия: Event в JSON-LD, undefined в стейте, синонимы area/floors (живой Домклик, 2026-10)."""
+    url = "https://yakutsk.domclick.ru/card/sale__flat__1933906019"
+    item = await extract_listing("domclick", "1933906019", url, fixture("domclick_like.html"))
+    assert (item.price, item.currency, item.area_total) == (9_800_000, "RUB", 66)
+    assert (item.rooms, item.floor, item.floors_total, item.year_built) == (2, 3, 16, 2016)
+    assert item.address.full == "Республика Саха (Якутия), Якутск, улица Пирогова, 9"
+    assert (item.address.lat, item.address.lon) == (62.044579, 129.726243)
+    assert "ипотек" not in item.title  # промо-название Event не попало в заголовок
+    assert item.title.startswith("Продаётся 2-комнатная")
+    assert item.completeness() == 1
+
+
+async def test_yandex_structure_from_live_page():
+    """Регрессия: адрес только в мета-описании, аренда, валюта RUR (живой Яндекс, 2026-10)."""
+    url = "https://realty.yandex.ru/offer/6675507316243631302/"
+    item = await extract_listing("yandex", "6675507316243631302", url, fixture("yandex_like.html"))
+    assert (item.price, item.currency, item.deal_type) == (35_000, "RUB", DealType.RENT)
+    assert (item.area_total, item.rooms, item.floor, item.floors_total) == (37.9, 1, 3, 5)
+    assert item.address.full == "Санкт-Петербург, Челябинская улица, 37"

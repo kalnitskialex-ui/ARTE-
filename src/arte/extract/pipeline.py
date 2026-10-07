@@ -26,6 +26,12 @@ def _merge(base: dict[str, Any], extra: dict[str, Any], method: str, methods: li
         methods.append(method)
 
 
+def _currency(value) -> str:
+    code = str(value or "RUB").upper()
+    # RUR — устаревший код рубля, площадки до сих пор его отдают.
+    return {"RUR": "RUB", "РУБ": "RUB", "₽": "RUB"}.get(code, code)
+
+
 def _enum(enum_cls, value):
     try:
         return enum_cls(value) if value else None
@@ -45,7 +51,7 @@ def build_listing(source: str, external_id: str, url: str, data: dict[str, Any],
         deal_type=_enum(DealType, data.get("deal_type")) or n.infer_deal_type(url, title),
         property_type=_enum(PropertyType, data.get("property_type")) or n.infer_property_type(url, title),
         price=data.get("price"),
-        currency=data.get("currency") or "RUB",
+        currency=_currency(data.get("currency")),
         area_total=data.get("area_total"),
         area_living=data.get("area_living"),
         area_kitchen=data.get("area_kitchen"),
