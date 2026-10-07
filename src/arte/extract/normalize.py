@@ -72,7 +72,8 @@ def parse_floor(text) -> tuple[int | None, int | None]:
     if text is None:
         return None, None
     s = str(text).lower()
-    m = re.search(r"(\d+)\s*/\s*(\d+)\s*эт", s) or re.search(r"(\d+)\s*этаж\w*\s*из\s*(\d+)", s)
+    m = (re.search(r"(\d+)\s*/\s*(\d+)\s*эт", s) or re.search(r"(\d+)\s*этаж\w*\s*из\s*(\d+)", s)
+         or re.fullmatch(r"\s*(\d+)\s*(?:/|из)\s*(\d+)\s*", s))
     if m:
         return int(m.group(1)), int(m.group(2))
     m = re.search(r"(\d+)\s*этаж", s)

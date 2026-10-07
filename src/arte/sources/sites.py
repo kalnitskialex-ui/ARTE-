@@ -61,3 +61,19 @@ class YandexRealty(Source):
     listing_re = re.compile(r"realty\.ya(?:ndex)?\.ru/offer/(?P<id>\d{8,})/?")
     page_param = "page"
     first_page = 0
+
+    _HIGHLIGHT_FIELDS = {"общая": "area_total", "жилая": "area_living", "кухня": "area_kitchen"}
+
+    def site_fields(self, tree: HTMLParser, url: str) -> dict:
+        # Блок характеристик карточки: «62 м² общая · 25 м² жилая · 19 м² кухня · 21 этаж из 29».
+        # Этих значений нет ни в JSON-LD, ни во встроенном стейте.
+        out: dict = {}
+        for item in tree.css('[class*="OfferCardHighlight__container"]'):
+            label = item.css_first('[class*="OfferCardHighlight__label"]')
+            value = item.css_first('[class*="OfferCardHighlight__value"]')
+            if not (label and value):
+                continue
+            key = label.text(strip=True).lower()
+            if field := self._HIGHLIGHT_FIELDS.get(key):
+                out[field] = n.parse_area(value.text(strip=True))
+        return {k: v for k, v in out.items() if v}

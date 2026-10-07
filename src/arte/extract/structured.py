@@ -305,6 +305,63 @@ def from_meta(tree: HTMLParser) -> dict[str, Any]:
     return out
 
 
+# Подписи характеристик в карточках российских сайтов недвижимости. Только однозначные
+# фразы: короткие «общая», «жилая», «кухня» встречаются и в вёрстке «значение → подпись»
+# (так у Яндекс Недвижимости), где они сдвинули бы все пары на одну позицию.
+LABELS: dict[str, str] = {
+    "общая площадь": "area_total", "жилая площадь": "area_living", "площадь кухни": "area_kitchen",
+    "этаж": "floor", "этажей в доме": "floors_total", "этажность": "floors_total",
+    "год постройки": "year_built", "год сдачи": "year_built",
+    "количество комнат": "rooms", "адрес": "address",
+}
+_AREA_VALUE = re.compile(r"^\s*\d[\d\s\u00a0]*(?:[.,]\d+)?\s*(?:м²|м2|кв\.?\s*м\.?)?\s*$", re.IGNORECASE)
+
+
+def from_label_pairs(tree: HTMLParser) -> dict[str, Any]:
+    """Пары «подпись → значение» в видимой разметке: «Жилая площадь» → «25 м²».
+
+    Берутся листовые элементы в порядке документа; если текст элемента — известная
+    подпись, значением считается следующий непустой лист. Работает на любой вёрстке
+    вида <dt>/<dd>, <span>/<span>, <div>/<div>, и не зависит от классов.
+    """
+    tags = {"span", "div", "dt", "dd", "td", "th", "li", "p", "b", "strong"}
+    leaves: list[str] = []
+    for node in tree.css(", ".join(tags)):
+        # css_first в lexbor находит и сам узел, поэтому «лист» проверяем по прямым детям.
+        if any(child.tag in tags for child in node.iter()):
+            continue
+        text = node.text(strip=True)
+        if text and len(text) <= 120:
+            leaves.append(text)
+    out: dict[str, Any] = {}
+    for label, value in zip(leaves, leaves[1:], strict=False):
+        field = LABELS.get(label.lower().rstrip(":"))
+        if not field or field in out or LABELS.get(value.lower().rstrip(":")):
+            continue
+        if field in ("area_total", "area_living", "area_kitchen"):
+            v = n.parse_area(value) if _AREA_VALUE.match(value) else None
+        elif field == "floor" and not value[:1].isdigit():
+            v = None
+        elif field == "floor":
+            v, total = n.parse_floor(value)
+            if v is None:
+                v = n.to_int(value)
+            if total and "floors_total" not in out:
+                out["floors_total"] = total
+        elif field == "rooms":
+            v = n.parse_rooms(value) if not value.strip().isdigit() else int(value)
+        elif field == "year_built":
+            m = re.fullmatch(r"\s*(1[7-9]\d\d|20\d\d)\s*(?:г\.?|год)?\s*", value)
+            v = int(m.group(1)) if m else None
+        elif field == "floors_total":
+            v = n.to_int(value)
+        else:
+            v = value
+        if v not in (None, ""):
+            out[field] = v
+    return out
+
+
 def from_text(text: str) -> dict[str, Any]:
     """Последний рубеж: регулярные выражения по видимому тексту/заголовку."""
     out: dict[str, Any] = {}

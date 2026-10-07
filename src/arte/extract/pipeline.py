@@ -18,7 +18,7 @@ LLM_THRESHOLD = 0.67
 
 def _merge(base: dict[str, Any], extra: dict[str, Any], method: str, methods: list[str]) -> None:
     added = False
-    for k, v in extra.items():
+    for k, v in sanitize(extra).items():
         if v not in (None, "", []) and base.get(k) in (None, "", []):
             base[k] = v
             added = True
@@ -39,8 +39,31 @@ def _enum(enum_cls, value):
         return None
 
 
+def sanitize(data: dict[str, Any]) -> dict[str, Any]:
+    """Отсекает явно неправдоподобные значения. Нужен прежде всего для ответов LLM:
+    при проверке на живых страницах Firecrawl JSON вернул координаты (0, 0) и жилую
+    площадь, равную общей, там, где на сайте данных не было."""
+    d = dict(data)
+    if d.get("lat") is not None and d.get("lon") is not None and abs(d["lat"]) < 1e-6 and abs(d["lon"]) < 1e-6:
+        d["lat"] = d["lon"] = None
+    for f in ("price", "area_total", "area_living", "area_kitchen"):
+        if d.get(f) is not None and d[f] <= 0:
+            d[f] = None
+    total = d.get("area_total")
+    if total:
+        for f in ("area_living", "area_kitchen"):
+            if d.get(f) is not None and d[f] >= total:
+                d[f] = None
+    if d.get("floor") is not None and d.get("floors_total") and d["floor"] > d["floors_total"]:
+        d["floors_total"] = None
+    if d.get("year_built") is not None and not 1700 <= d["year_built"] <= 2100:
+        d["year_built"] = None
+    return d
+
+
 def build_listing(source: str, external_id: str, url: str, data: dict[str, Any],
                   methods: list[str]) -> Listing:
+    data = sanitize(data)
     title = data.get("title")
     desc = data.get("description") or data.get("meta_description")
     return Listing(
@@ -80,6 +103,7 @@ async def extract_listing(source: str, external_id: str, url: str, html: str, *,
     _merge(data, s.from_jsonld(tree), "jsonld", methods)
     _merge(data, s.from_embedded_json(tree), "embedded_json", methods)
     _merge(data, s.from_meta(tree), "meta", methods)
+    _merge(data, s.from_label_pairs(tree), "labels", methods)
     if prefilled:
         _merge(data, ListingExtraction.model_validate(prefilled).model_dump(), "firecrawl_json", methods)
     title_text = " ".join(filter(None, [data.get("title"), data.get("meta_description")]))

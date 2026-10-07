@@ -29,6 +29,8 @@ def test_parse_floor():
     assert n.parse_floor("2-к. квартира, 54 м², 5/12 эт.") == (5, 12)
     assert n.parse_floor("7 этаж из 16") == (7, 16)
     assert n.parse_floor("3 этаж") == (3, None)
+    assert n.parse_floor("4 из 9") == (4, 9)
+    assert n.parse_floor("12/25") == (12, 25)
 
 
 def test_infer_types():
