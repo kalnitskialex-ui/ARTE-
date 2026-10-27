@@ -13,7 +13,7 @@ from arte.storage.db import Event, ListingRow, sessionmaker
 log = logging.getLogger(__name__)
 
 TITLES = {"new": "🆕 Новое", "price_down": "📉 Цена снижена", "price_up": "📈 Цена выросла",
-          "removed": "❌ Снято", "reactivated": "♻️ Снова в продаже"}
+          "removed": "❌ Снято", "reactivated": "♻️ Снова в продаже", "good_deal": "💎 Ниже рынка"}
 
 
 def _rub(v: float | None) -> str:
@@ -26,6 +26,9 @@ def format_event(event: Event, row: ListingRow) -> str:
         lines.append(html.escape(row.title))
     if event.kind in ("price_down", "price_up"):
         lines.append(f"{_rub(event.old_price)} → <b>{_rub(event.new_price)}</b>")
+    elif event.kind == "good_deal" and event.old_price and event.new_price:
+        pct = (1 - event.new_price / event.old_price) * 100
+        lines.append(f"<b>{_rub(event.new_price)}</b> при рыночной оценке {_rub(event.old_price)} (−{pct:.0f} %)")
     else:
         lines.append(f"<b>{_rub(row.price)}</b>" + (f" · {row.price_per_m2:,.0f} ₽/м²".replace(",", " ")
                                                      if row.price_per_m2 else ""))

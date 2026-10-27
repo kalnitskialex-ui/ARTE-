@@ -89,7 +89,9 @@ class PricePoint(Base):
 
 
 class Event(Base):
-    """Изменения для уведомлений: new, price_down, price_up, removed, reactivated."""
+    """Изменения для уведомлений: new, price_down, price_up, removed, reactivated, good_deal.
+
+    Для good_deal old_price — рыночная оценка по аналогам, new_price — цена объявления."""
 
     __tablename__ = "events"
     id: Mapped[int] = mapped_column(primary_key=True)

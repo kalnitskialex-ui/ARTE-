@@ -41,6 +41,26 @@ async def test_firecrawl_fetcher(settings):
     assert listing_page["location"]["country"] == "RU"
 
 
+@pytest.mark.parametrize("status,final_url,html", [
+    (200, "https://www.cian.ru/cian-captcha/?redirect_url=https://www.cian.ru/x/", "<html>Captcha</html>"),
+    (439, "https://www.avito.ru/moskva/kvartiry/x_1", "<title>Доступ ограничен: проверка безопасности</title>"),
+])
+async def test_firecrawl_stops_on_bot_protection(settings, status, final_url, html):
+    """Как ответили живые ЦИАН (капча с кодом 200) и Avito (439) при проверке через Firecrawl."""
+    from arte.fetch.http import BlockedError
+
+    class Blocked(FakeFirecrawl):
+        async def scrape(self, url, **kwargs):
+            return SimpleNamespace(raw_html=html, html=None, links=[], json=None,
+                                   metadata=SimpleNamespace(status_code=status, source_url=url, url=final_url))
+
+    async with FirecrawlFetcher(settings, client=Blocked()) as f:
+        with pytest.raises(BlockedError):
+            await f.get("https://www.cian.ru/x/")
+        with pytest.raises(BlockedError):  # хост запомнен — кредиты больше не тратим
+            await f.get("https://www.cian.ru/y/")
+
+
 def test_firecrawl_requires_key(settings):
     with pytest.raises(RuntimeError):
         FirecrawlFetcher(settings)

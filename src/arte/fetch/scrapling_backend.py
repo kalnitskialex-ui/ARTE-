@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from arte.config import Settings, get_settings
-from arte.fetch.http import BLOCK_MARKERS, BlockedError, DisallowedError, FetchResult
+from arte.fetch.http import BlockedError, DisallowedError, FetchResult, looks_blocked
 from arte.fetch.robots import RobotsCache
 
 
@@ -82,8 +82,7 @@ class ScraplingFetcher:
             page = await self._fetch(url)
 
         html = page.html_content if hasattr(page, "html_content") else str(page.body)
-        lower = html[:20_000].lower() if len(html) < 20_000 else ""
-        if page.status in (401, 403) or any(m in lower for m in BLOCK_MARKERS):
+        if looks_blocked(page.status, str(page.url or url), html):
             self._blocked_hosts.add(host)
             raise BlockedError(f"{host}: HTTP {page.status}, похоже на защиту от ботов")
         return FetchResult(url=str(page.url or url), status=page.status, text=html,

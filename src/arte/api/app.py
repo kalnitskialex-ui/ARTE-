@@ -99,8 +99,11 @@ async def get_listing(listing_id: int):
         if row.object_id:
             duplicates = (await s.scalars(select(ListingRow).where(
                 ListingRow.object_id == row.object_id, ListingRow.id != row.id))).all()
+        from arte.analytics import evaluate
+        valuation = await evaluate(s, row)
     return {
         **ListingOut.model_validate(row).model_dump(),
+        "valuation": valuation.as_dict() if valuation else None,
         "description": row.description,
         "extraction_methods": row.extraction_methods,
         "price_history": [{"price": p.price, "seen_at": p.seen_at} for p in row.prices],
@@ -130,6 +133,17 @@ async def stats(deal_type: str = "sale"):
         "price_changes": price_changes or 0,
         "median_price_per_m2_by_rooms": {k: round(statistics.median(v)) for k, v in sorted(groups.items())},
     }
+
+
+@app.get("/api/deals")
+async def deals(min_discount: float = Query(0.1, ge=0, le=0.9), deal_type: str = "sale",
+                limit: int = Query(50, le=500)):
+    """Объявления дешевле рыночной оценки по аналогам."""
+    from arte.analytics import find_deals
+
+    async with sessionmaker()() as s:
+        found = await find_deals(s, min_discount=min_discount, deal_type=deal_type, limit=limit)
+    return [{**ListingOut.model_validate(r).model_dump(), "valuation": v.as_dict()} for r, v in found]
 
 
 @app.get("/api/events")

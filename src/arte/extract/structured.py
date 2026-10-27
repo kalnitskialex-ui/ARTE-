@@ -20,12 +20,12 @@ from arte.extract import normalize as n
 # Синонимы ключей, которые встречаются во фронтенд-стейтах площадок.
 FIELD_KEYS: dict[str, tuple[str, ...]] = {
     "price": ("price", "pricerur", "priceValue", "price_value", "priceTotal", "fullprice"),
-    "area_total": ("totalArea", "area_total", "areaTotal", "total_area", "square", "areaValue"),
+    "area_total": ("totalArea", "area_total", "areaTotal", "total_area", "square", "areaValue", "area"),
     "area_living": ("livingArea", "area_living", "living_area", "livingSquare"),
     "area_kitchen": ("kitchenArea", "area_kitchen", "kitchen_area", "kitchenSquare"),
     "rooms": ("roomsCount", "rooms", "rooms_count", "roomsNumber", "roomCount", "numberOfRooms"),
     "floor": ("floorNumber", "floor", "floor_number"),
-    "floors_total": ("floorsCount", "floors_total", "floorsTotal", "totalFloors", "floorsNumber"),
+    "floors_total": ("floorsCount", "floors_total", "floorsTotal", "totalFloors", "floorsNumber", "floors"),
     "year_built": ("buildYear", "year_built", "yearBuilt", "buildingYear", "build_year"),
     "lat": ("lat", "latitude"),
     "lon": ("lng", "lon", "longitude"),
@@ -43,6 +43,8 @@ _CORE = {"price", "area_total", "rooms", "floor", "floors_total", "address", "la
 LD_TYPES = {
     "product", "offer", "residence", "apartment", "singlefamilyresidence", "house",
     "realestatelisting", "accommodation", "place", "apartmentcomplex", "room",
+    # Домклик размечает карточку объявления как Event, а объект кладёт в location.
+    "event",
 }
 
 
@@ -80,10 +82,12 @@ def _ld_address(addr) -> str | None:
 def from_jsonld(tree: HTMLParser) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for item in iter_jsonld(tree):
-        if not _ld_type(item) & LD_TYPES:
+        types = _ld_type(item)
+        if not types & LD_TYPES:
             continue
-        out.setdefault("title", item.get("name"))
-        out.setdefault("description", item.get("description"))
+        if "event" not in types:  # у Event в name/description — промо-тексты, а не объект
+            out.setdefault("title", item.get("name"))
+            out.setdefault("description", item.get("description"))
         offers = item.get("offers")
         if isinstance(offers, list):
             offers = offers[0] if offers else None
@@ -102,9 +106,10 @@ def from_jsonld(tree: HTMLParser) -> dict[str, Any]:
             out.setdefault("floor", n.to_int(item["floorLevel"]))
         if item.get("yearBuilt") is not None:
             out.setdefault("year_built", n.to_int(item["yearBuilt"]))
-        if addr := _ld_address(item.get("address")):
+        place = item.get("location") if isinstance(item.get("location"), dict) else {}
+        if addr := _ld_address(item.get("address")) or _ld_address(place.get("address")):
             out.setdefault("address", addr)
-        geo = item.get("geo")
+        geo = item.get("geo") or place.get("geo")
         if isinstance(geo, dict):
             out.setdefault("lat", n.to_float(geo.get("latitude")))
             out.setdefault("lon", n.to_float(geo.get("longitude")))
@@ -121,6 +126,8 @@ def from_jsonld(tree: HTMLParser) -> dict[str, Any]:
 # Начало JSON-литерала после присваивания или открывающей скобки вызова:
 # window.X = {...};  state = [...];  (...).concat([...]);  push({...})
 _JSON_START = re.compile(r"(?:=|\()\s*(?=[{\[])")
+# JS-литералы, которые встречаются в «почти JSON» стейтах (window.__SSR_STATE__={...undefined...}).
+_JS_LITERALS = re.compile(r"(?<=[:\[,])(\s*)(?:undefined|NaN|-?Infinity)(?=\s*[,}\]])")
 # URL-кодированный JSON в строке: window.__initialData__ = "%7B%22...%7D"
 _URLENCODED = re.compile(r"=\s*[\"'](%7B[^\"']{50,})[\"']", re.IGNORECASE)
 _JSON_PARSE = re.compile(r'JSON\.parse\(\s*("(?:[^"\\]|\\.)*")\s*\)')
@@ -152,6 +159,8 @@ def iter_embedded_json(tree: HTMLParser, min_len: int = 200) -> Iterator[Any]:
             except json.JSONDecodeError:
                 pass
         consumed = 0
+        if "undefined" in text or "NaN" in text:
+            text = _JS_LITERALS.sub(r"\1null", text)
         for m in _JSON_START.finditer(text):
             if m.end() < consumed:  # внутри уже разобранного литерала
                 continue
@@ -255,6 +264,8 @@ def from_embedded_json(tree: HTMLParser) -> dict[str, Any]:
             out[f] = n.parse_rooms(v) if f == "rooms" and isinstance(v, str) else n.to_int(v)
         elif f in ("lat", "lon"):
             out[f] = n.to_float(v)
+        elif f == "title":
+            continue  # title/name во фронтенд-стейте часто означают другое (улицу, ЖК) — берём из meta
         elif isinstance(v, str):
             out[f] = v.strip()
     return {k: v for k, v in out.items() if v not in (None, "")}
@@ -279,6 +290,9 @@ def from_meta(tree: HTMLParser) -> dict[str, Any]:
         out["title"] = title
     if desc := meta("og:description", "description"):
         out["meta_description"] = desc
+        # «📍 Адрес: Москва, Южнопортовая улица, 52к2, ЖК …» (Яндекс Недвижимость и др.)
+        if m := re.search(r"Адрес:\s*([^.✅\n]{5,200})", desc):
+            out["address"] = m.group(1).strip(" ,")
     if img := meta("og:image"):
         out["photos"] = [img]
     if lat := meta("place:location:latitude", "geo.position"):
@@ -288,6 +302,63 @@ def from_meta(tree: HTMLParser) -> dict[str, Any]:
         else:
             out["lat"] = n.to_float(lat)
             out["lon"] = n.to_float(meta("place:location:longitude"))
+    return out
+
+
+# Подписи характеристик в карточках российских сайтов недвижимости. Только однозначные
+# фразы: короткие «общая», «жилая», «кухня» встречаются и в вёрстке «значение → подпись»
+# (так у Яндекс Недвижимости), где они сдвинули бы все пары на одну позицию.
+LABELS: dict[str, str] = {
+    "общая площадь": "area_total", "жилая площадь": "area_living", "площадь кухни": "area_kitchen",
+    "этаж": "floor", "этажей в доме": "floors_total", "этажность": "floors_total",
+    "год постройки": "year_built", "год сдачи": "year_built",
+    "количество комнат": "rooms", "адрес": "address",
+}
+_AREA_VALUE = re.compile(r"^\s*\d[\d\s\u00a0]*(?:[.,]\d+)?\s*(?:м²|м2|кв\.?\s*м\.?)?\s*$", re.IGNORECASE)
+
+
+def from_label_pairs(tree: HTMLParser) -> dict[str, Any]:
+    """Пары «подпись → значение» в видимой разметке: «Жилая площадь» → «25 м²».
+
+    Берутся листовые элементы в порядке документа; если текст элемента — известная
+    подпись, значением считается следующий непустой лист. Работает на любой вёрстке
+    вида <dt>/<dd>, <span>/<span>, <div>/<div>, и не зависит от классов.
+    """
+    tags = {"span", "div", "dt", "dd", "td", "th", "li", "p", "b", "strong"}
+    leaves: list[str] = []
+    for node in tree.css(", ".join(tags)):
+        # css_first в lexbor находит и сам узел, поэтому «лист» проверяем по прямым детям.
+        if any(child.tag in tags for child in node.iter()):
+            continue
+        text = node.text(strip=True)
+        if text and len(text) <= 120:
+            leaves.append(text)
+    out: dict[str, Any] = {}
+    for label, value in zip(leaves, leaves[1:], strict=False):
+        field = LABELS.get(label.lower().rstrip(":"))
+        if not field or field in out or LABELS.get(value.lower().rstrip(":")):
+            continue
+        if field in ("area_total", "area_living", "area_kitchen"):
+            v = n.parse_area(value) if _AREA_VALUE.match(value) else None
+        elif field == "floor" and not value[:1].isdigit():
+            v = None
+        elif field == "floor":
+            v, total = n.parse_floor(value)
+            if v is None:
+                v = n.to_int(value)
+            if total and "floors_total" not in out:
+                out["floors_total"] = total
+        elif field == "rooms":
+            v = n.parse_rooms(value) if not value.strip().isdigit() else int(value)
+        elif field == "year_built":
+            m = re.fullmatch(r"\s*(1[7-9]\d\d|20\d\d)\s*(?:г\.?|год)?\s*", value)
+            v = int(m.group(1)) if m else None
+        elif field == "floors_total":
+            v = n.to_int(value)
+        else:
+            v = value
+        if v not in (None, ""):
+            out[field] = v
     return out
 
 

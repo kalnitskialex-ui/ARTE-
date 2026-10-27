@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from arte.config import Settings, get_settings
 from arte.extract.schema import EXTRACTION_PROMPT, ListingExtraction
-from arte.fetch.http import BlockedError, DisallowedError, FetchResult
+from arte.fetch.http import BlockedError, DisallowedError, FetchResult, looks_blocked
 from arte.fetch.robots import RobotsCache
 
 log = logging.getLogger(__name__)
@@ -96,15 +96,18 @@ class FirecrawlFetcher:
 
         meta = doc.metadata
         status = (meta.status_code if meta else None) or 200
-        if status in (401, 403):
+        final_url = (meta.url or meta.source_url or url) if meta else url
+        html = doc.raw_html or doc.html or ""
+        # ЦИАН отвечает капчей с кодом 200 и редиректом на /cian-captcha/, Avito — кодом 439.
+        if looks_blocked(status, final_url, html):
             self._blocked_hosts.add(host)
-            raise BlockedError(f"{host}: HTTP {status}")
+            raise BlockedError(f"{host}: HTTP {status}, защита от ботов ({final_url})")
 
         links = [link if isinstance(link, str) else getattr(link, "url", "") for link in (doc.links or [])]
         return FetchResult(
-            url=(meta.source_url or meta.url) if meta and (meta.source_url or meta.url) else url,
+            url=final_url,
             status=status,
-            text=doc.raw_html or doc.html or "",
+            text=html,
             links=[x for x in links if x],
             extracted=doc.json if isinstance(doc.json, dict) else None,
         )
