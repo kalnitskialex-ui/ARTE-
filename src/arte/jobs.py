@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field
 
 
 class NotifyFilter(BaseModel):
-    kinds: list[str] = Field(default_factory=lambda: ["new", "price_down"])
+    kinds: list[str] = Field(default_factory=lambda: ["new", "price_down", "good_deal"])
+    # Порог «выгодного» предложения: насколько цена ниже рыночной оценки по аналогам.
+    deal_discount: float = 0.1
     price_max: float | None = None
     price_min: float | None = None
     rooms: list[int] | None = None

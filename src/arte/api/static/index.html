@@ -71,6 +71,7 @@
   </section>
   <aside style="display:grid; gap:16px; align-content:start; min-width:0">
     <div class="card"><div id="map"></div></div>
+    <div class="card"><b>Ниже рынка</b> <span class="muted">(от 10 % по аналогам)</span><ul class="events" id="deals" style="padding-left:18px"></ul></div>
     <div class="card"><b>События</b><ul class="events" id="events" style="padding-left:18px"></ul></div>
   </aside>
 </main>
@@ -123,7 +124,11 @@ async function loadStats() {
     <div class="stat"><span class="muted">Изменений цены</span><b>${fmt(s.price_changes)}</b></div>
     <div class="stat" style="flex-basis:260px"><span class="muted">Медиана ₽/м² (продажа)</span><div>${ppm}</div></div>`;
   const ev = await (await fetch("/api/events?limit=15")).json();
-  const label = {new: "новое", price_down: "цена ↓", price_up: "цена ↑", removed: "снято", reactivated: "снова в продаже"};
+  const label = {new: "новое", price_down: "цена ↓", price_up: "цена ↑", removed: "снято", reactivated: "снова в продаже", good_deal: "ниже рынка"};
+  const deals = await (await fetch("/api/deals?limit=10")).json();
+  document.getElementById("deals").innerHTML = deals.map(d => `<li data-id="${d.id}">
+    <span class="down">−${d.valuation.discount_pct} %</span> ${fmt(d.price)} ₽ при оценке ${fmt(d.valuation.fair_price)} ·
+    <a href="#" data-id="${d.id}">${esc(d.title ?? d.address ?? d.source)}</a></li>`).join("") || '<li class="muted">пока нет — нужно больше аналогов</li>';
   document.getElementById("events").innerHTML = ev.map(e => `<li>
     <span class="${e.kind === "price_down" ? "down" : e.kind === "price_up" ? "up" : ""}">${label[e.kind] ?? e.kind}</span>
     ${e.old_price ? fmt(e.old_price) + " → " : ""}${fmt(e.new_price)} · <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title ?? e.source)}</a></li>`).join("") || '<li class="muted">пока пусто</li>';
@@ -135,6 +140,9 @@ async function showDetail(id) {
   document.getElementById("detail-body").innerHTML = `
     <h3>${esc(d.title ?? "Объявление")}</h3>
     <p><b>${fmt(d.price)} ₽</b> · ${d.area_total ?? "—"} м² · ${fmt(d.price_per_m2)} ₽/м²<br>${esc(d.address ?? "")}</p>
+    ${d.valuation ? `<p>Рыночная оценка: <b>${fmt(d.valuation.fair_price)} ₽</b> (${fmt(d.valuation.fair_price_per_m2)} ₽/м², аналогов: ${d.valuation.comps}) —
+      <span class="${d.valuation.discount_pct >= 0 ? "down" : "up"}">${d.valuation.discount_pct >= 0 ? "дешевле" : "дороже"} рынка на ${Math.abs(d.valuation.discount_pct)} %</span></p>`
+      : '<p class="muted">Рыночная оценка: недостаточно аналогов</p>'}
     <p><a href="${esc(d.url)}" target="_blank" rel="noopener">Открыть на ${esc(d.source)}</a>
        <span class="muted"> · извлечено: ${esc((d.extraction_methods || []).join(", "))}</span></p>
     ${dups ? `<p><b>Этот же объект на других площадках:</b></p><ul>${dups}</ul>` : ""}`;
@@ -150,6 +158,7 @@ async function showDetail(id) {
 document.getElementById("filters").addEventListener("submit", e => { e.preventDefault(); offset = 0; load(); });
 document.querySelectorAll("[data-export]").forEach(b => b.onclick = () => location.href = `/api/export.${b.dataset.export}?` + params());
 document.getElementById("rows").addEventListener("click", e => { const tr = e.target.closest("tr"); if (tr) showDetail(tr.dataset.id); });
+document.getElementById("deals").addEventListener("click", e => { const a = e.target.closest("a[data-id]"); if (a) { e.preventDefault(); showDetail(a.dataset.id); } });
 document.getElementById("prev").onclick = () => { if (offset > 0) { offset -= LIMIT; load(); } };
 document.getElementById("next").onclick = () => { if (offset + LIMIT < total) { offset += LIMIT; load(); } };
 load(); loadStats();

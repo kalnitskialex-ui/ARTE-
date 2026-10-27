@@ -152,6 +152,12 @@ async def run_job(job: Job, settings: Settings | None = None, fetcher=None, llm=
                     await session.commit()
 
         await asyncio.gather(*(process(u) for u in urls))
+        if stats.events:
+            from arte.analytics import deal_events
+            async with sm() as session:
+                threshold = job.notify.deal_discount if job.notify else 0.1
+                stats.events.extend(await deal_events(session, stats.events, min_discount=threshold))
+                await session.commit()
         if job.notify and stats.events:
             from arte.notify.telegram import notify_events
             await notify_events(stats.events, job, settings)

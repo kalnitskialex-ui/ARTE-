@@ -35,6 +35,7 @@ jobs.yaml ─► Crawler ─► Загрузчик ─────────�
 | `extract/adaptive.py` | Самовосстанавливающиеся CSS-селекторы (Scrapling) |
 | `extract/llm.py`, `extract/scrapegraph.py` | LLM-извлечение: Claude (structured outputs) или ScrapeGraphAI |
 | `sources/` | Адаптеры площадок: шаблоны URL, ID, пагинация, точные правила |
+| `analytics.py` | Рыночная оценка по аналогам (медиана ₽/м²), поиск предложений ниже рынка, события `good_deal` |
 | `dedup.py` | Склейка дублей: комнаты + этаж + площадь ±2 % + (координаты ≤ 60 м или похожий адрес) |
 | `storage/` | SQLAlchemy (SQLite/PostgreSQL): объекты, объявления, история цен, события |
 | `api/` | FastAPI + дашборд (таблица, фильтры, карта, график цены, дубли на других сайтах) |
@@ -63,6 +64,7 @@ Docker с PostgreSQL: `docker compose up -d` (API на `:8000` + фоновый 
 | `GET /api/listings` | Фильтры: `source, deal_type, property_type, rooms, price_min/max, area_min/max, q, active, sort, limit, offset` |
 | `GET /api/listings/{id}` | Карточка + история цены + этот же объект на других площадках |
 | `GET /api/stats` | Активные по площадкам, уникальные объекты, медиана ₽/м² по комнатности |
+| `GET /api/deals` | Объявления дешевле рыночной оценки: `min_discount` (по умолчанию 0.1), `deal_type` |
 | `GET /api/events` | Лента: новые, снижение/рост цены, снятые |
 | `GET /api/export.{csv,xlsx,json}` | Выгрузка с теми же фильтрами |
 | `POST /api/jobs/{name}/run` | Запустить задание сейчас |
@@ -158,7 +160,7 @@ arte check "<ссылка на объявление>" -v
 ## Разработка
 
 ```bash
-pytest -q                     # 49 тестов: извлечение, адаптеры, хранилище, дедуп, API, бэкенды
+pytest -q                     # 56 тестов: извлечение, адаптеры, хранилище, дедуп, API, бэкенды
 ruff check src tests
 ARTE_TEST_DATABASE_URL=postgresql+asyncpg://arte:arte@localhost/arte pytest -q   # на PostgreSQL
 ```
@@ -170,4 +172,4 @@ ARTE_TEST_DATABASE_URL=postgresql+asyncpg://arte:arte@localhost/arte pytest -q  
 - Подключить официальные фиды/API площадок как источники.
 - Геокодирование адресов без координат (для дедупликации и карты).
 - Очередь задач (например, arq/Redis) вместо встроенного цикла `arte run` при большом числе заданий.
-- Аналитика: оценка «справедливой» цены по аналогам, сигналы о выгодных предложениях.
+- Геокодирование адресов без координат — точнее подбор аналогов и склейка дублей.
